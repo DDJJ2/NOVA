@@ -5,7 +5,27 @@ import { Brain, TrendingUp, AlertCircle, Target, Users, Lightbulb } from 'lucide
 export default function LeadershipPotential({ employeeId , token }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch(
+        `${process.env.REACT_APP_API_URL}/leadership/llm/${employeeId}`,
+        {
+          headers:
+            { Authorization: `Bearer ${token}` }
+        }
+      );
+      const json = await res.json();
+      setData(json);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -53,7 +73,16 @@ export default function LeadershipPotential({ employeeId , token }) {
     <div className="max-w-7xl mx-auto space-y-6 py-8 px-6">
       {/* Header */}
       <header className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-gray-900">Leadership Assessment</h1>
+        <div className="flex items-center justify-center space-x-4">
+          <h1 className="text-3xl font-bold text-gray-900">Leadership Assessment</h1>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {refreshing ? 'Refreshing...' : '🔄 Refresh'}
+          </button>
+        </div>
         <p className="text-gray-600">Optional evaluation to understand your leadership potential</p>
       </header>
 
