@@ -4,7 +4,7 @@ import { MentorRequestModal } from '../components/MentorRequestModal';
 import { MentorRegistration } from '../components/MentorRegistration';
 import { MentorDashboard } from './MentorDashboard';
 import { MenteeActiveMentorships } from '../components/MenteeActiveMentorships';
-import { mentorAPI } from '../services/api';
+import { mentorAPI, apiService } from '../services/api';
 import { PendingMentorshipRequests } from '../components/PendingMentorshipRequests';
 import { useAuth } from '../services/AuthContext'; // Import auth
 
@@ -37,7 +37,46 @@ export function Mentorship() {
       setUserRole(mentorCheck.is_mentor ? 'both' : 'mentee');
 
       const data = await mentorAPI.getMentorMatches(employeeId);
-      setMentors(data.mentor_matches || []);
+      let matches = data.mentor_matches || [];
+
+      // Temporary enrichment: compute years_experience on the client by
+      // joining mentors by name to employees and fetching details per mentor.
+      try {
+        // Fetch basic employees list to map mentor name -> employee_id
+        const employeesListResp = await apiService.listEmployees();
+        const employeesList = employeesListResp?.data || [];
+        const byName = new Map(employeesList.map((e) => [e.name, e]));
+
+        // Helper to compute full years between today and a date string
+        const computeYears = (d) => {
+          if (!d) return 0;
+          const start = new Date(d);
+          if (isNaN(start.getTime())) return 0;
+          const diff = (Date.now() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+          return Math.max(0, Math.floor(diff));
+        };
+
+        // For each mentor, fetch their employee details (hire_date/in_role_since)
+        matches = await Promise.all(
+          matches.map(async (m) => {
+            if (m.years_experience && m.years_experience > 0) return m;
+            const emp = byName.get(m.mentor_name);
+            if (!emp?.employee_id) return m;
+            try {
+              const empDetailResp = await apiService.getEmployee(emp.employee_id);
+              const empDetail = empDetailResp?.data || {};
+              const years = computeYears(empDetail.hire_date || empDetail.in_role_since);
+              return { ...m, years_experience: years };
+            } catch (_e) {
+              return m;
+            }
+          })
+        );
+      } catch (_err) {
+        // Swallow enrichment errors; keep original matches
+      }
+
+      setMentors(matches);
     } catch (err) {
       console.error('Error loading data:', err);
     } finally {
