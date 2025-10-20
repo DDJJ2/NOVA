@@ -13,10 +13,7 @@ Live demo: [https://nova-two-alpha.vercel.app](https://nova-two-alpha.vercel.app
 - [Architecture](#architecture)  
 - [Getting Started](#getting-started)  
 - [Usage](#usage)  
-- [Configuration](#configuration)  
-- [Contributing](#contributing)  
 - [Roadmap](#roadmap)  
-- [License](#license)  
 
 ---
 
@@ -36,6 +33,7 @@ With a modern front-end plus back-end architecture (see below), NOVA is structur
 - **Progress Tracking** – Track your skill development, milestones, and objectives over time.  
 - **User-Friendly Dashboard** – Clear, actionable interface to help you stay focused and motivated.  
 - **Scalable Microservice Back-End** – Keeps the system responsive and ready for growth.
+- **Leadership Potential and Recommended Development Areas** - Identify the steps you need to take to become a leader.
 
 ---
 
