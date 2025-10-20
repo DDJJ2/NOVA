@@ -2,7 +2,6 @@
 
 **NOVA** is your personal growth partner—using AI to guide your career, recommend up-skilling paths, and connect you with mentors who help you flourish. It is designed to make career development simple, supportive, and meaningful.  
 Live demo: [https://nova-two-alpha.vercel.app](https://nova-two-alpha.vercel.app)  
-:contentReference[oaicite:2]{index=2}
 
 ---
 
