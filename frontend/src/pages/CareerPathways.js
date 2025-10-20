@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from "react";
-import { useAppData } from "../context/AppDataContext";
+// src/pages/CareerPathways.js
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useAuth } from "../services/AuthContext";
 import { apiService } from "../services/api";
 
+// Searchable function area select
 function FunctionAreaSelect({ value, options = [], onChange }) {
-  const [query, setQuery] = useState('');
-  const filtered = (query?.trim()
-    ? options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()))
-    : options
-  ).slice(0, 50);
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const base = Array.isArray(options) ? options : [];
+    return q ? base.filter(o => String(o).toLowerCase().includes(q)) : base;
+  }, [query, options]);
 
   return (
     <div className="rounded-md border">
@@ -24,7 +27,7 @@ function FunctionAreaSelect({ value, options = [], onChange }) {
         {value && (
           <button
             type="button"
-            onClick={() => onChange('')}
+            onClick={() => onChange("")}
             className="text-xs text-gray-500 hover:text-gray-700"
           >
             Clear
@@ -36,7 +39,7 @@ function FunctionAreaSelect({ value, options = [], onChange }) {
         {!filtered.length ? (
           <div className="px-3 py-2 text-sm text-gray-500">No matches</div>
         ) : (
-          filtered.map((opt) => {
+          filtered.slice(0, 50).map((opt) => {
             const active = value === opt;
             return (
               <button
@@ -44,7 +47,7 @@ function FunctionAreaSelect({ value, options = [], onChange }) {
                 type="button"
                 onClick={() => onChange(opt)}
                 className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${
-                  active ? 'bg-blue-50 text-blue-700' : 'text-gray-800'
+                  active ? "bg-blue-50 text-blue-700" : "text-gray-800"
                 }`}
               >
                 {opt}
@@ -64,64 +67,133 @@ function FunctionAreaSelect({ value, options = [], onChange }) {
 }
 
 export default function CareerPathways() {
-  const { employee, employeeSkillNames = [], functionAreas = [], loading } = useAppData();
+  const { user } = useAuth();
 
-  // aspirations quiz
+  // base state
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  // data
+  const [functionAreas, setFunctionAreas] = useState([]);
+  const [employee, setEmployee] = useState(null);
+  const [skills, setSkills] = useState([]); // raw employee skills
+  const employeeSkillNames = useMemo(() => {
+    const arr = Array.isArray(skills) ? skills : [];
+    const set = new Set(arr.map(s => s?.skill_name?.trim()).filter(Boolean));
+    return Array.from(set).sort();
+  }, [skills]);
+
+  // pathways result + form
+  const [result, setResult] = useState(null); // { pathways: [], internal_opportunities: [] }
   const [fa, setFa] = useState("");
   const [shortTerm, setShortTerm] = useState("");
   const [longTerm, setLongTerm] = useState("");
 
-  // results
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState(null); // { pathways: [], internal_opportunities: [] }
+  const empId = user?.employeeId;
+
+  // Load current user data (employee, skills, function areas, latest saved pathways)
+  const loadAll = useCallback(async (currentEmpId) => {
+    setError("");
+    setLoading(true);
+    try {
+      if (currentEmpId === null || currentEmpId === undefined) {
+        throw new Error("User not authenticated");
+      }
+
+      // Parallel requests using your axios apiService (token comes from interceptor)
+      const [empRes, skillsRes, faRes, latestRes] = await Promise.all([
+        apiService.getEmployee(currentEmpId),
+        apiService.getEmployeeSkills(currentEmpId),
+        apiService.listFunctionAreas(),
+        apiService.getLatestPathways(currentEmpId),
+      ]);
+
+      const emp = empRes?.data ?? null;
+      setEmployee(emp);
+
+      const rawSkills = skillsRes?.data ?? skillsRes;
+      setSkills(Array.isArray(rawSkills) ? rawSkills : []);
+
+      const faData = faRes?.data;
+      const list = Array.isArray(faData?.data) ? faData.data : (Array.isArray(faData) ? faData : []);
+      setFunctionAreas(list.filter(Boolean).sort());
+
+      const latest = latestRes?.data ?? null; // shape: { id, employee_id, aspiration, result, ... }
+      if (latest?.result) setResult(latest.result);
+      if (latest?.aspiration?.function_area) {
+        setFa(latest.aspiration.function_area);
+        setShortTerm(latest.aspiration.short_term || "");
+        setLongTerm(latest.aspiration.long_term || "");
+      } else {
+        // if no saved aspiration, start clean
+        setFa("");
+        setShortTerm("");
+        setLongTerm("");
+      }
+    } catch (e) {
+      console.error(e);
+      setError(e?.message || "Failed to load career pathways");
+      setResult(null);
+      setSkills([]);
+      setFunctionAreas([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const id = employee?.employee_id;
-    if (!id) return;
+    let cancelled = false;
     (async () => {
-      try {
-        const { data } = await apiService.getLatestPathways(id);
-        // data shape: { id, employee_id, aspiration, result, model_used, generated_at }
-        if (data?.result) setResult(data.result);
-        if (data?.aspiration?.function_area) {
-          setFa(data.aspiration.function_area);
-          setShortTerm(data.aspiration.short_term || "");
-          setLongTerm(data.aspiration.long_term || "");
-        }
-      } catch (e) {
-        // No saved record yet
-      }
+      await loadAll(empId);
+      if (cancelled) return;
     })();
-  }, [employee?.employee_id]);
+    return () => { cancelled = true; };
+  }, [empId, loadAll]);
 
+  // Submit / generate pathways
   async function onGenerate(e) {
     e.preventDefault();
-    if (!fa) return;
+    if (!fa || empId === null || empId === undefined) return;
+
     setBusy(true);
     setError("");
     try {
-      const { data } = await apiService.assessPathways({
-        employeeId: employee?.employee_id, // Samantha is auto-selected in context
+      const payload = {
+        employeeId: empId,
         aspiration: {
           function_area: fa,
           short_term: shortTerm || undefined,
           long_term: longTerm || undefined,
         },
-      });
+      };
+
+      const res = await apiService.assessPathways(payload);
+      const data = res?.data ?? null;
       setResult(data?.result || null);
     } catch (err) {
-      setError(err?.response?.data?.error || err.message || "Failed to generate pathways");
+      console.error(err);
+      const msg = err?.error || err?.message || "Failed to generate pathways";
+      setError(msg);
       setResult(null);
     } finally {
       setBusy(false);
     }
   }
 
+  // UI
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
+        Error: {error}
       </div>
     );
   }
@@ -133,34 +205,31 @@ export default function CareerPathways() {
         <p className="text-gray-600">Find the perfect career pathway for you.</p>
       </header>
 
-      {/* Aspirations quiz */}
+      {/* Aspirations form */}
       <form onSubmit={onGenerate} className="bg-white rounded-lg shadow overflow-hidden">
-        {/* Card header */}
         <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Career Aspiration</h2>
-            <p className="text-sm text-gray-500">Pick a function area and share your goals. We’ll tailor a pathway from your current skills.</p>
+            <p className="text-sm text-gray-500">
+              Pick a function area and share your goals. We’ll tailor a pathway from your current skills.
+            </p>
           </div>
           {busy && (
             <div className="flex items-center text-sm text-blue-600">
               <span className="h-2 w-2 rounded-full bg-blue-600 mr-2 animate-pulse" />
-                Generating…
+              Generating…
             </div>
           )}
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Function Area selector (searchable) */}
           <div>
-            <label className="block text-sm font-medium text-gray-900 mb-1">Function Area <span className="text-red-500">*</span></label>
-            <FunctionAreaSelect
-              value={fa}
-              options={functionAreas}
-              onChange={setFa}
-            />
+            <label className="block text-sm font-medium text-gray-900 mb-1">
+              Function Area <span className="text-red-500">*</span>
+            </label>
+            <FunctionAreaSelect value={fa} options={functionAreas} onChange={setFa} />
           </div>
 
-          {/* Goals */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-900 mb-1">
@@ -175,7 +244,9 @@ export default function CareerPathways() {
                   onChange={(e) => setShortTerm(e.target.value)}
                   placeholder="e.g., Lead analytics initiatives across operations"
                 />
-                <span className="absolute bottom-2 right-3 text-[10px] text-gray-400">{shortTerm.length}/280</span>
+                <span className="absolute bottom-2 right-3 text-[10px] text-gray-400">
+                  {shortTerm.length}/280
+                </span>
               </div>
             </div>
 
@@ -192,23 +263,23 @@ export default function CareerPathways() {
                   onChange={(e) => setLongTerm(e.target.value)}
                   placeholder="e.g., Drive enterprise-wide data strategy and governance"
                 />
-                <span className="absolute bottom-2 right-3 text-[10px] text-gray-400">{longTerm.length}/280</span>
+                <span className="absolute bottom-2 right-3 text-[10px] text-gray-400">
+                  {longTerm.length}/280
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Error (if any) */}
           {error && (
             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}
             </div>
           )}
 
-          {/* Actions */}
           <div className="flex items-center justify-end gap-3">
             <button
               type="button"
-              onClick={() => { setFa(''); setShortTerm(''); setLongTerm(''); setError(''); }}
+              onClick={() => { setFa(""); setShortTerm(""); setLongTerm(""); setError(""); }}
               className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
             >
               Reset
@@ -217,22 +288,20 @@ export default function CareerPathways() {
               type="submit"
               disabled={!fa || busy}
               className={`px-4 py-2 rounded-md text-white transition-colors ${
-                !fa || busy ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                !fa || busy ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {busy ? 'Generating…' : 'Save'}
+              {busy ? "Generating…" : "Save"}
             </button>
           </div>
         </div>
       </form>
 
-
       {/* Results */}
       {result && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Pathways list */}
           <div className="lg:col-span-2 space-y-4">
-            {result.pathways?.map((p, idx) => (
+            {(result.pathways || []).map((p, idx) => (
               <div key={idx} className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-start justify-between">
                   <div>
@@ -284,7 +353,9 @@ export default function CareerPathways() {
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="text-sm font-semibold text-gray-900">{o.title}</div>
-                          <div className="text-xs text-gray-600">{o.unit} • {o.location} • {o.posted_at || "Recently"}</div>
+                          <div className="text-xs text-gray-600">
+                            {o.unit} • {o.location} • {o.posted_at || "Recently"}
+                          </div>
                         </div>
                         <div className="text-right">
                           <div className="text-lg font-bold text-emerald-700">{o.match ?? 0}%</div>
