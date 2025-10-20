@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "../services/AuthContext";
 import { apiService } from "../services/api";
 
-// ----------- Small UI: searchable function area select -----------
+// Searchable function area select
 function FunctionAreaSelect({ value, options = [], onChange }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => {
@@ -66,7 +66,6 @@ function FunctionAreaSelect({ value, options = [], onChange }) {
   );
 }
 
-// ------------------------- Page -------------------------
 export default function CareerPathways() {
   const { user } = useAuth();
 
@@ -182,7 +181,7 @@ export default function CareerPathways() {
     }
   }
 
-  // ---------------- UI ----------------
+  // UI
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
